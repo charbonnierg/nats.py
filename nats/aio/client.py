@@ -155,7 +155,6 @@ class Client:
         return f"<nats client v{__version__}>"
 
     def __init__(self):
-        self._loop = None
         self._current_server = None
         self._server_info = {}
         self._server_pool = []
@@ -230,8 +229,6 @@ class Client:
     async def connect(
         self,
         servers=["nats://127.0.0.1:4222"],
-        io_loop=None,
-        loop=None,
         error_cb=None,
         disconnected_cb=None,
         closed_cb=None,
@@ -267,8 +264,7 @@ class Client:
                 raise ErrInvalidCallbackType()
 
         self._setup_server_pool(servers)
-        self._loop = io_loop or loop or asyncio.get_event_loop()
-        self._error_cb = error_cb or _default_error_callback
+        self._error_cb = error_cb
         self._closed_cb = closed_cb
         self._discovered_server_cb = discovered_server_cb
         self._reconnected_cb = reconnected_cb
@@ -307,9 +303,7 @@ class Client:
             self._setup_nkeys_connect()
 
         # Queue used to trigger flushes to the socket
-        self._flush_queue = asyncio.Queue(
-            maxsize=flusher_queue_size, loop=self._loop
-        )
+        self._flush_queue = asyncio.Queue(maxsize=flusher_queue_size)
 
         if self.options["dont_randomize"] is False:
             shuffle(self._server_pool)
@@ -497,13 +491,12 @@ class Client:
                     await asyncio.wait_for(
                         self._reconnection_task_future,
                         self.options["reconnect_time_wait"],
-                        loop=self._loop,
                     )
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
 
         # Relinquish control to allow background tasks to wrap up.
-        await asyncio.sleep(0, loop=self._loop)
+        await asyncio.sleep(0)
 
         if self._current_server is not None:
             # In case there is any pending data at this point, flush before disconnecting.
@@ -613,7 +606,10 @@ class Client:
                 # the sub per task will be canceled as well.
                 pass
 
-        return self._loop.create_task(drain_subscription())
+        # asyncio.create_task is preferred, but it was added in
+        # 3.7, and using loops directly is easier as we need to
+        # support 3.6
+        return asyncio.get_event_loop().create_task(drain_subscription())
 
     async def publish(self, subject, payload):
         """
@@ -722,10 +718,7 @@ class Client:
 
             sub.pending_msgs_limit = pending_msgs_limit
             sub.pending_bytes_limit = pending_bytes_limit
-            sub.pending_queue = asyncio.Queue(
-                maxsize=pending_msgs_limit,
-                loop=self._loop,
-            )
+            sub.pending_queue = asyncio.Queue(maxsize=pending_msgs_limit)
 
             # Close the delivery coroutine over the sub and error handler
             # instead of having subscription type hold over state of the conn.
@@ -748,7 +741,9 @@ class Client:
                                     # the handler implementation ought to decide
                                     # the concurrency level at which the messages
                                     # should be processed.
-                                    self._loop.create_task(sub.coro(msg))
+                                    asyncio.get_event_loop().create_task(
+                                        sub.coro(msg)
+                                    )
                                 else:
                                     await sub.coro(msg)
                             elif sub.cb is not None:
@@ -758,7 +753,9 @@ class Client:
                                     )
                                 else:
                                     # Schedule regular callbacks to be processed sequentially.
-                                    self._loop.call_soon(sub.cb, msg)
+                                    asyncio.get_event_loop().call_soon(
+                                        sub.cb, msg
+                                    )
                         except asyncio.CancelledError:
                             # In case the coroutine handler gets cancelled
                             # then stop task loop and return.
@@ -776,7 +773,9 @@ class Client:
 
             # Start task for each subscription, it should be cancelled
             # on both unsubscribe and closing as well.
-            sub.wait_for_msgs_task = self._loop.create_task(wait_for_msgs())
+            sub.wait_for_msgs_task = asyncio.get_event_loop().create_task(
+                wait_for_msgs()
+            )
 
         elif future is not None:
             # Used to handle the single response from a request.
@@ -887,10 +886,7 @@ class Client:
             # FIXME: Allow setting pending limits for responses mux subscription.
             sub.pending_msgs_limit = DEFAULT_SUB_PENDING_MSGS_LIMIT
             sub.pending_bytes_limit = DEFAULT_SUB_PENDING_BYTES_LIMIT
-            sub.pending_queue = asyncio.Queue(
-                maxsize=sub.pending_msgs_limit,
-                loop=self._loop,
-            )
+            sub.pending_queue = asyncio.Queue(maxsize=sub.pending_msgs_limit)
 
             # Single task for handling the requests
             async def wait_for_msgs():
@@ -920,7 +916,9 @@ class Client:
                     except asyncio.CancelledError:
                         break
 
-            sub.wait_for_msgs_task = self._loop.create_task(wait_for_msgs())
+            sub.wait_for_msgs_task = asyncio.get_event_loop().create_task(
+                wait_for_msgs()
+            )
 
             # Store the subscription in the subscriptions map,
             # then send the protocol commands to the server.
@@ -933,13 +931,13 @@ class Client:
         token = self._nuid.next()
         inbox = self._resp_sub_prefix[:]
         inbox.extend(token)
-        future = asyncio.Future(loop=self._loop)
+        future = asyncio.Future()
         self._resp_map[token.decode()] = future
         await self.publish_request(subject, inbox.decode(), payload)
 
         # Wait for the response or give up on timeout.
         try:
-            msg = await asyncio.wait_for(future, timeout, loop=self._loop)
+            msg = await asyncio.wait_for(future, timeout)
             return msg
         except asyncio.TimeoutError:
             del self._resp_map[token.decode()]
@@ -964,13 +962,13 @@ class Client:
         next_inbox.extend(self._nuid.next())
         inbox = next_inbox.decode()
 
-        future = asyncio.Future(loop=self._loop)
+        future = asyncio.Future()
         sid = await self.subscribe(inbox, future=future, max_msgs=1)
         await self.auto_unsubscribe(sid, 1)
         await self.publish_request(subject, inbox, payload)
 
         try:
-            msg = await asyncio.wait_for(future, timeout, loop=self._loop)
+            msg = await asyncio.wait_for(future, timeout)
             return msg
         except asyncio.TimeoutError:
             await self.unsubscribe(sid)
@@ -1010,10 +1008,10 @@ class Client:
         if self.is_closed:
             raise ErrConnectionClosed
 
-        future = asyncio.Future(loop=self._loop)
+        future = asyncio.Future()
         try:
             await self._send_ping(future)
-            await asyncio.wait_for(future, timeout, loop=self._loop)
+            await asyncio.wait_for(future, timeout)
         except asyncio.TimeoutError:
             future.cancel()
             raise ErrTimeout
@@ -1172,16 +1170,11 @@ class Client:
             if s.last_attempt is not None and now < s.last_attempt + self.options[
                     "reconnect_time_wait"]:
                 # Backoff connecting to server if we attempted recently.
-                await asyncio.sleep(
-                    self.options["reconnect_time_wait"], loop=self._loop
-                )
+                await asyncio.sleep(self.options["reconnect_time_wait"])
             try:
                 s.last_attempt = time.monotonic()
                 connection_future = asyncio.open_connection(
-                    s.uri.hostname,
-                    s.uri.port,
-                    loop=self._loop,
-                    limit=DEFAULT_BUFFER_SIZE
+                    s.uri.hostname, s.uri.port, limit=DEFAULT_BUFFER_SIZE
                 )
                 r, w = await asyncio.wait_for(
                     connection_future, self.options['connect_timeout']
@@ -1233,7 +1226,9 @@ class Client:
         # FIXME: Some errors such as 'Invalid Subscription'
         # do not cause the server to close the connection.
         # For now we handle similar as other clients and close.
-        self._loop.create_task(self._close(Client.CLOSED, do_cbs))
+        asyncio.get_event_loop().create_task(
+            self._close(Client.CLOSED, do_cbs)
+        )
 
     async def _process_op_err(self, e):
         """
@@ -1254,7 +1249,7 @@ class Client:
                 # Cancel the previous task in case it may still be running.
                 self._reconnection_task.cancel()
 
-            self._reconnection_task = self._loop.create_task(
+            self._reconnection_task = asyncio.get_event_loop().create_task(
                 self._attempt_reconnect()
             )
         else:
@@ -1291,7 +1286,7 @@ class Client:
 
         # Create a future that the client can use to control waiting
         # on the reconnection attempts.
-        self._reconnection_task_future = asyncio.Future(loop=self._loop)
+        self._reconnection_task_future = asyncio.Future()
         while True:
             try:
                 # Try to establish a TCP connection to a server in
@@ -1596,11 +1591,9 @@ class Client:
             # the previous method is removed in 3.9
             if sys.version_info.minor >= 7:
                 # manually recreate the stream reader/writer with a tls upgraded transport
-                reader = asyncio.StreamReader(loop=self._loop)
-                protocol = asyncio.StreamReaderProtocol(
-                    reader, loop=self._loop
-                )
-                transport_future = self._loop.start_tls(
+                reader = asyncio.StreamReader()
+                protocol = asyncio.StreamReaderProtocol(reader)
+                transport_future = asyncio.get_event_loop().start_tls(
                     self._io_writer.transport,
                     protocol,
                     ssl_context,
@@ -1610,7 +1603,7 @@ class Client:
                     transport_future, self.options['connect_timeout']
                 )
                 writer = asyncio.StreamWriter(
-                    transport, protocol, reader, self._loop
+                    transport, protocol, reader, asyncio.get_event_loop()
                 )
                 self._io_reader, self._io_writer = reader, writer
             else:
@@ -1621,7 +1614,6 @@ class Client:
                     raise NatsError('nats: unable to get socket')
 
                 connection_future = asyncio.open_connection(
-                    loop=self._loop,
                     limit=DEFAULT_BUFFER_SIZE,
                     sock=sock,
                     ssl=ssl_context,
@@ -1677,19 +1669,23 @@ class Client:
         if PONG_PROTO in next_op:
             self._status = Client.CONNECTED
 
-        self._reading_task = self._loop.create_task(self._read_loop())
+        self._reading_task = asyncio.get_event_loop().create_task(
+            self._read_loop()
+        )
         self._pongs = []
         self._pings_outstanding = 0
-        self._ping_interval_task = self._loop.create_task(
+        self._ping_interval_task = asyncio.get_event_loop().create_task(
             self._ping_interval()
         )
 
         # Task for kicking the flusher queue
-        self._flusher_task = self._loop.create_task(self._flusher())
+        self._flusher_task = asyncio.get_event_loop().create_task(
+            self._flusher()
+        )
 
     async def _send_ping(self, future=None):
         if future is None:
-            future = asyncio.Future(loop=self._loop)
+            future = asyncio.Future()
         self._pongs.append(future)
         self._io_writer.write(PING_PROTO)
         await self._flush_pending()
@@ -1720,7 +1716,7 @@ class Client:
 
     async def _ping_interval(self):
         while True:
-            await asyncio.sleep(self.options["ping_interval"], loop=self._loop)
+            await asyncio.sleep(self.options["ping_interval"])
             if not self.is_connected:
                 continue
             try:
@@ -1773,4 +1769,4 @@ class Client:
     def __exit__(self, *exc_info):
         """Close connection to NATS when used in a context manager"""
 
-        self._loop.create_task(self._close(Client.CLOSED, True))
+        asyncio.get_event_loop().create_task(self._close(Client.CLOSED, True))

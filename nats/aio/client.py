@@ -11,6 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+from __future__ import annotations
 
 import asyncio
 import json
@@ -83,7 +84,7 @@ class Subscription:
         id: int,
         subject: str,
         queue: str = '',
-        cb: Optional[Callable[['Msg'], None]] = None,
+        cb: Optional[Callable[[Msg], None]] = None,
         future: Optional[asyncio.Future] = None,
         max_msgs: int = 0,
         pending_msgs_limit: int = DEFAULT_SUB_PENDING_MSGS_LIMIT,
@@ -107,7 +108,7 @@ class Subscription:
         self._message_iterator = None
 
     @property
-    def messages(self) -> AsyncIterator['Msg']:
+    def messages(self) -> AsyncIterator[Msg]:
         """
         Retrieves an async iterator for the messages from the subscription.
 
@@ -257,19 +258,14 @@ class _SubscriptionMessageIterator:
 
 
 class Msg:
-    __slots__ = ('subject', 'reply', 'data', 'sid')
+    __slots__ = ('subject', 'reply', 'data', 'sid', '_client')
 
-    def __init__(
-        self,
-        subject: str = '',
-        reply: str = '',
-        data: str = b'',
-        sid: int = 0
-    ):
+    def __init__(self, subject: str = '', reply: str = '', data: str = b'', sid: int = 0, client: Optional[Client] = None):
         self.subject = subject
         self.reply = reply
         self.data = data
         self.sid = sid
+        self._client = client
 
     def __repr__(self):
         return "<{}: subject='{}' reply='{}' data='{}...'>".format(
@@ -278,6 +274,14 @@ class Msg:
             self.reply,
             self.data[:10].decode(),
         )
+
+    async def respond(self, data: bytes):
+        if not self.reply:
+            raise NatsError('no reply subject available')
+        if not self._client:
+            raise NatsError('client not set')
+
+        await self._client.publish(self.reply, data)
 
 
 class Srv:
@@ -1413,7 +1417,10 @@ class Client:
 
     def _build_message(self, subject, reply, data):
         return self.msg_class(
-            subject=subject.decode(), reply=reply.decode(), data=data
+            subject=subject.decode(),
+            reply=reply.decode(),
+            data=data,
+            client=self
         )
 
     def _process_disconnect(self):

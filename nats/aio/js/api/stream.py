@@ -1,3 +1,16 @@
+# Copyright 2021 - Guillaume Charbonnier
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 import json
 from base64 import b64decode
 from dataclasses import asdict
@@ -5,11 +18,11 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from nats.aio.js.models.streams import (
     Discard, Mirror, PubAck, Retention, Source, Storage, StreamCreateRequest,
-    StreamCreateResponse, StreamDeleteResponse, StreamInfoRequest,
-    StreamInfoResponse, StreamListRequest, StreamListResponse,
-    StreamMsgDeleteRequest, StreamMsgDeleteResponse, StreamMsgGetRequest,
-    StreamMsgGetResponse, StreamNamesRequest, StreamNamesResponse,
-    StreamPurgeRequest, StreamPurgeResponse, StreamUpdateRequest
+    StreamDeleteResponse, StreamInfoRequest, StreamInfoResponse,
+    StreamListRequest, StreamListResponse, StreamMsgDeleteRequest,
+    StreamMsgDeleteResponse, StreamMsgGetRequest, StreamMsgGetResponse,
+    StreamNamesRequest, StreamNamesResponse, StreamPurgeRequest,
+    StreamPurgeResponse, StreamUpdateRequest
 )
 
 if TYPE_CHECKING:
@@ -92,7 +105,7 @@ class StreamAPI:
         sources: Optional[List[Source]] = None,
         timeout: float = 1,
         **kwargs: Any,
-    ) -> StreamCreateResponse:
+    ) -> StreamInfoResponse:
         """Create a new stream.
 
         Args:
@@ -139,14 +152,13 @@ class StreamAPI:
             no_ack=no_ack,
             **kwargs,
         )
-        await self._js._request(
+        return await self._js._request(
             f"STREAM.CREATE.{name}",
             options,
             request_dc=StreamCreateRequest,
             response_dc=StreamInfoResponse,
             timeout=timeout,
         )
-        return await self.info(name)
 
     async def info(
         self,
@@ -175,6 +187,7 @@ class StreamAPI:
     async def update(
         self,
         name: str,
+        description: Optional[str] = None,
         subjects: Optional[List[str]] = None,
         discard: Optional[Discard] = None,
         max_msgs: Optional[int] = None,
@@ -209,6 +222,8 @@ class StreamAPI:
         current_config = (await self.info(name, False)).config
         new_config: Dict[str, Any] = {}
         new_config["name"] = name
+        if description is not None:
+            new_config["description"] = description
         if subjects is not None:
             new_config["subjects"] = subjects
         if discard is not None:

@@ -1,4 +1,6 @@
-# Copyright 2016-2021 The NATS Authors
+# Copyright 2021 - Guillaume Charbonnier
+#
+# Copyright 2016-2018 The NATS Authors
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -10,12 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-
 import asyncio
-from asyncio.tasks import create_task
 import base64
-from dataclasses import dataclass
 import ipaddress
 import json
 import logging
@@ -23,6 +21,7 @@ import ssl
 import sys
 import time
 import warnings
+from dataclasses import dataclass
 from random import shuffle
 from typing import (
     Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence, Tuple,
@@ -42,8 +41,8 @@ from nats.aio.errors import (
 from nats.aio.js import JetStream
 from nats.aio.messages import Msg
 from nats.aio.nuid import NUID
-from nats.aio.subscriptions import Subscription
 from nats.aio.server import Srv, SrvInfo
+from nats.aio.subscriptions import Subscription
 from nats.protocol import command as prot_command
 from nats.protocol.constants import (
     _CRLF_, _SPC_, CONNECT_OP, ERR_OP, INBOX_PREFIX, INBOX_PREFIX_LEN, INFO_OP,
@@ -815,31 +814,54 @@ class Client:
 
         import nkeys
 
-        seed = None
-        creds: str = self._nkeys_seed  # type: ignore[assignment]
-        with open(creds, 'rb') as f:
-            seed = bytearray(os.fstat(f.fileno()).st_size)
-            f.readinto(seed)  # type: ignore[attr-defined]
-        kp = nkeys.from_seed(seed)
-        self._public_nkey = kp.public_key.decode()
-        kp.wipe()
-        del kp
-        del seed
+        if isinstance(self._nkeys_seed, bytes):
+            seed: Optional[bytearray] = bytearray(self._nkeys_seed)
 
-        def sig_cb(nonce: str) -> bytes:
-            seed = None
-            with open(creds, 'rb') as f:
-                seed = bytearray(os.fstat(f.fileno()).st_size)
-                f.readinto(seed)  # type: ignore[attr-defined]
             kp = nkeys.from_seed(seed)
-            raw_signed = kp.sign(nonce.encode())
-            sig = base64.b64encode(raw_signed)
-
-            # Best effort attempt to clear from memory.
+            self._public_nkey = kp.public_key.decode()
             kp.wipe()
             del kp
             del seed
-            return sig
+
+            def sig_cb(nonce: str) -> bytes:
+                seed = bytearray(self._nkeys_seed)  # type: ignore[arg-type]
+                kp = nkeys.from_seed(seed)
+                raw_signed = kp.sign(nonce.encode())
+                sig = base64.b64encode(raw_signed)
+                # Best effort attempt to clear from memory.
+                kp.wipe()
+                del kp
+                del seed
+                return sig
+
+        else:
+
+            seed = None
+            creds: str = self._nkeys_seed  # type: ignore[assignment]
+            with open(creds, 'rb') as f:
+                seed = bytearray(os.fstat(f.fileno()).st_size)
+                f.readinto(seed)  # type: ignore[attr-defined]
+
+            kp = nkeys.from_seed(seed)
+            self._public_nkey = kp.public_key.decode()
+            kp.wipe()
+            del kp
+            del seed
+
+            def sig_cb(nonce: str) -> bytes:
+                seed = None
+                with open(creds, 'rb') as f:
+                    seed = bytearray(os.fstat(f.fileno()).st_size)
+                    f.readinto(seed)  # type: ignore[attr-defined]
+                kp = nkeys.from_seed(seed)
+                raw_signed = kp.sign(nonce.encode())
+                sig = base64.b64encode(raw_signed)
+
+                # Best effort attempt to clear from memory.
+                kp.wipe()
+                del kp
+                del seed
+                return sig
 
         self._signature_cb = sig_cb
 

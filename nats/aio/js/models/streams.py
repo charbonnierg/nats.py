@@ -1,3 +1,16 @@
+# Copyright 2021 - Guillaume Charbonnier
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -106,6 +119,7 @@ class StreamConfig:
     storage: Storage
     num_replicas: int
     name: Optional[str] = None
+    description: Optional[str] = None
     subjects: Optional[List[str]] = None
     max_msgs_per_subject: Optional[int] = -1
     max_msg_size: Optional[int] = -1
@@ -116,6 +130,10 @@ class StreamConfig:
     placement: Optional[Placement] = None
     mirror: Optional[Mirror] = None
     sources: Optional[List[Source]] = None
+    sealed: Optional[bool] = False
+    deny_delete: Optional[bool] = False
+    deny_purge: Optional[bool] = False
+    allow_rollup_hdrs: Optional[bool] = False
 
     def __post_init__(self):
         if isinstance(self.placement, dict):
@@ -169,6 +187,7 @@ class Stream:
     mirror: Optional[MirrorInfo] = None
     sources: Optional[List[SourceInfo]] = None
     cluster: Optional[Cluster] = None
+    did_create: Optional[bool] = False
 
     def __post_init__(self):
         if isinstance(self.config, dict):
@@ -185,11 +204,6 @@ class Stream:
 @dataclass
 class StreamInfoResponse(Stream, JetStreamResponse):
     pass
-
-
-@dataclass
-class StreamCreateResponse(Stream, JetStreamResponse):
-    did_create: Optional[bool] = None
 
 
 @dataclass
@@ -269,12 +283,17 @@ class StreamCreateRequest:
     storage: Storage
     num_replicas: int
     no_ack: Optional[bool] = False
+    description: Optional[str] = None
     template_owner: Optional[str] = None
     discard: Optional[Discard] = Discard.old
     duplicate_window: Optional[int] = 0
     placement: Optional[Placement] = None
     mirror: Optional[Mirror] = None
     sources: Optional[List[Source]] = None
+    sealed: Optional[bool] = False
+    deny_delete: Optional[bool] = False
+    deny_purge: Optional[bool] = False
+    allow_rollup_hdrs: Optional[bool] = False
 
     def __post_init__(self):
         if isinstance(self.mirror, dict):

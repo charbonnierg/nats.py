@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -57,6 +58,45 @@ class ClientNkeysAuthTest(NkeysServerTestCase):
 
         await nc.close()
 
+    @async_test
+    async def test_bytes_nkeys_connect(self):
+        if not nkeys_installed:
+            pytest.skip("nkeys not installed")
+
+        nc = NATS()
+
+        future = asyncio.Future()
+
+        async def error_cb(e):
+            nonlocal future
+            future.set_result(True)
+
+        await nc.connect(
+            ["tls://127.0.0.1:4222"],
+            error_cb=error_cb,
+            connect_timeout=10,
+            nkeys_seed=Path(get_config_file("nkeys/foo-user.nk")).read_bytes(),
+            allow_reconnect=False,
+        )
+
+        async def help_handler(msg):
+            await nc.publish(msg.reply, b'OK!')
+
+        await nc.subscribe("help", cb=help_handler)
+        await nc.flush()
+        msg = await nc.request("help", b'I need help')
+        self.assertEqual(msg.data, b'OK!')
+
+        await nc.subscribe("bar", cb=help_handler)
+        await nc.flush()
+
+        await asyncio.wait_for(future, 1)
+
+        msg = await nc.request("help", b'I need help')
+        self.assertEqual(msg.data, b'OK!')
+
+        await nc.close()
+
 
 class ClientJWTAuthTest(TrustedServerTestCase):
     @async_test
@@ -87,6 +127,34 @@ class ClientJWTAuthTest(TrustedServerTestCase):
         await nc.close()
 
     @async_test
+    async def test_nkeys_bytes_jwt_creds_user_connect(self):
+        if not nkeys_installed:
+            pytest.skip("nkeys not installed")
+
+        nc = NATS()
+
+        async def error_cb(e):
+            print("Async Error:", e, type(e))
+
+        await nc.connect(
+            ["tls://127.0.0.1:4222"],
+            error_cb=error_cb,
+            connect_timeout=5,
+            user_credentials=Path(get_config_file("nkeys/foo-user.creds")
+                                  ).read_bytes(),
+            allow_reconnect=False,
+        )
+
+        async def help_handler(msg):
+            await nc.publish(msg.reply, b'OK!')
+
+        await nc.subscribe("help", cb=help_handler)
+        await nc.flush()
+        msg = await nc.request("help", b'I need help')
+        self.assertEqual(msg.data, b'OK!')
+        await nc.close()
+
+    @async_test
     async def test_nkeys_jwt_creds_user_connect_tuple(self):
         if not nkeys_installed:
             pytest.skip("nkeys not installed")
@@ -103,6 +171,36 @@ class ClientJWTAuthTest(TrustedServerTestCase):
             user_credentials=(
                 get_config_file("nkeys/foo-user.jwt"),
                 get_config_file("nkeys/foo-user.nk")
+            ),
+            allow_reconnect=False,
+        )
+
+        async def help_handler(msg):
+            await nc.publish(msg.reply, b'OK!')
+
+        await nc.subscribe("help", cb=help_handler)
+        await nc.flush()
+        msg = await nc.request("help", b'I need help')
+        self.assertEqual(msg.data, b'OK!')
+        await nc.close()
+
+    @async_test
+    async def test_nkeys_bytes_jwt_creds_user_connect_tuple(self):
+        if not nkeys_installed:
+            pytest.skip("nkeys not installed")
+
+        nc = NATS()
+
+        async def error_cb(e):
+            print("Async Error:", e, type(e))
+
+        await nc.connect(
+            ["tls://127.0.0.1:4222"],
+            error_cb=error_cb,
+            connect_timeout=5,
+            user_credentials=(
+                Path(get_config_file("nkeys/foo-user.jwt")).read_bytes(),
+                Path(get_config_file("nkeys/foo-user.nk")).read_bytes(),
             ),
             allow_reconnect=False,
         )

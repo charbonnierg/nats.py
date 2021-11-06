@@ -17,14 +17,6 @@ Should be compatible with at least [Python +3.7](https://docs.python.org/3.7/lib
 pip install asyncio-nats-client
 ```
 
-Starting from [v0.9.0](https://github.com/nats-io/nats.py/releases/tag/v0.9.0) release,
-you can also optionally install [NKEYS](https://github.com/nats-io/nkeys.py) in order to use
-the new NATS v2.0 auth features:
-
-```bash
-pip install asyncio-nats-client[nkeys]
-```
-
 ## Basic Usage
 
 ```python

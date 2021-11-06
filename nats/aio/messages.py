@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
@@ -37,11 +38,13 @@ _ACK_TYPES: Dict[str, bytes] = dict(
     Term=TERM,
 )
 
+# $JS.ACK.<domain>.<account hash>.<stream>.<consumer>.<delivered>.<sseq>.<cseq>.<tm>.<pending>.<a token with a random value>
+
 
 class MsgMetadata:
     __slots__ = (
-        'num_delivered', 'num_pending', 'timestamp', 'stream', 'consumer',
-        'sequence'
+        'account_hash', 'domain', 'num_delivered', 'num_pending', 'timestamp',
+        'stream', 'consumer', 'sequence'
     )
 
     class SequencePair:
@@ -60,6 +63,8 @@ class MsgMetadata:
         timestamp: Optional[datetime] = None,
         stream: Optional[str] = None,
         consumer: Optional[str] = None,
+        domain: Optional[str] = None,
+        account_hash: Optional[str] = None,
     ) -> None:
         self.sequence = sequence
         self.num_pending = int(
@@ -71,15 +76,65 @@ class MsgMetadata:
         self.timestamp = timestamp
         self.stream = stream
         self.consumer = consumer
+        self.domain = domain
+        self.account_hash = account_hash
 
     @staticmethod
     def _get_metadata_fields(reply: str) -> List[str]:
         if reply is None or reply == '':
             raise ErrNotJSMessage()
         tokens = reply.split('.')
-        if len(tokens) != 9 or tokens[0] != "$JS" or tokens[1] != "ACK":
+        nb_tokens = len(tokens)
+        if (nb_tokens != 9 and
+                nb_tokens != 12) or tokens[0] != "$JS" or tokens[1] != "ACK":
             raise ErrNotJSMessage()
         return tokens
+
+    @classmethod
+    def from_tokens_v1(cls, tokens: List[str]) -> MsgMetadata:
+        t = datetime.fromtimestamp(int(tokens[7]) / 1_000_000_000.0)
+        return cls(
+            sequence=MsgMetadata.SequencePair(tokens[5], tokens[6]),
+            num_delivered=tokens[4],
+            num_pending=tokens[8],
+            timestamp=t,
+            stream=tokens[2],
+            consumer=tokens[3],
+        )
+
+    @classmethod
+    def from_tokens_v2(cls, tokens: List[str]) -> MsgMetadata:
+        """Source: https://github.com/nats-io/nats-architecture-and-design/blob/main/adr/ADR-15.md#v2-notes"""
+        t = datetime.fromtimestamp(int(tokens[9]) / 1_000_000_000.0)
+        domain = tokens[2] if tokens[2] != "_" else None
+        return cls(
+            account_hash=tokens[3],
+            stream=tokens[4],
+            consumer=tokens[5],
+            num_delivered=tokens[6],
+            sequence=MsgMetadata.SequencePair(tokens[7], tokens[8]),
+            num_pending=tokens[10],
+            timestamp=t,
+            domain=domain,
+        )
+
+    @classmethod
+    def from_subject(cls, subject: str) -> MsgMetadata:
+        if subject is None or subject == '':
+            raise ErrNotJSMessage()
+        tokens = subject.split('.')
+        try:
+            if tokens[0] != "$JS" or tokens[1] != "ACK":
+                raise ErrNotJSMessage()
+        except Exception:
+            raise ErrNotJSMessage()
+        nb_tokens = len(tokens)
+        if nb_tokens == 9:
+            return cls.from_tokens_v1(tokens)
+        elif nb_tokens == 12:
+            return cls.from_tokens_v2(tokens)
+        else:
+            raise ErrNotJSMessage()
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}: stream='{self.stream}' consumer='{self.consumer}' sequence=({self.sequence.stream if self.sequence else None}, {self.sequence.consumer if self.sequence else None})>"
@@ -173,14 +228,5 @@ class Msg:
         """
         if self._metadata is not None:
             return self._metadata
-        tokens = MsgMetadata._get_metadata_fields(self.reply)
-        t = datetime.fromtimestamp(int(tokens[7]) / 1_000_000_000.0)
-        self._metadata = MsgMetadata(
-            sequence=MsgMetadata.SequencePair(tokens[5], tokens[6]),
-            num_delivered=tokens[4],
-            num_pending=tokens[8],
-            timestamp=t,
-            stream=tokens[2],
-            consumer=tokens[3],
-        )
+        self._metadata = MsgMetadata.from_subject(self.reply)
         return self._metadata

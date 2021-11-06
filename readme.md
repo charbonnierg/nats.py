@@ -21,7 +21,7 @@ Starting from [v0.9.0](https://github.com/nats-io/nats.py/releases/tag/v0.9.0) r
 you can also optionally install [NKEYS](https://github.com/nats-io/nkeys.py) in order to use
 the new NATS v2.0 auth features:
 
-```
+```bash
 pip install asyncio-nats-client[nkeys]
 ```
 
@@ -42,12 +42,8 @@ async def run():
     # nc = await nats.connect("tls://demo.nats.io:4443")
 
     async def message_handler(msg):
-        subject = msg.subject
-        reply = msg.reply
         data = msg.data.decode()
-        headers = msg.headers
-        print("Received a message on '{subject} {reply} {headers}': {data}".format(
-            subject=subject, reply=reply, headers=headers, data=data))
+        print(f"Received a message on '{msg.subject} {msg.reply} {msg.headers}': {data}")
 
     # Simple publisher and async subscriber via coroutine.
     sub = await nc.subscribe("foo", cb=message_handler)

@@ -115,6 +115,7 @@ class ConsumerAPI:
         self,
         stream: str,
         name: Optional[str] = None,
+        description: Optional[str] = None,
         deliver_subject: Optional[str] = None,
         deliver_group: Optional[str] = None,
         deliver_policy: DeliverPolicy = DeliverPolicy.last,
@@ -129,6 +130,9 @@ class ConsumerAPI:
         idle_heartbeat: Optional[int] = None,
         flow_control: Optional[bool] = None,
         max_waiting: Optional[int] = None,
+        ops_start_seq: Optional[int] = None,
+        ops_start_time: Optional[int] = None,
+        headers_only: Optional[bool] = None,
         timeout: float = 1,
     ) -> ConsumerCreateResponse:
         """Create a new consumer.
@@ -152,6 +156,7 @@ class ConsumerAPI:
         """
         config = dict(
             durable_name=name,
+            description=description,
             deliver_subject=deliver_subject,
             deliver_group=deliver_group,
             deliver_policy=deliver_policy,
@@ -166,6 +171,9 @@ class ConsumerAPI:
             idle_heartbeat=idle_heartbeat,
             flow_control=flow_control,
             max_waiting=max_waiting,
+            ops_start_time=ops_start_time,
+            ops_start_seq=ops_start_seq,
+            headers_only=headers_only,
         )
         subject = f"CONSUMER.DURABLE.CREATE.{stream}.{name}" if name else f"CONSUMER.CREATE.{stream}"
         return await self._js._request(
@@ -173,6 +181,48 @@ class ConsumerAPI:
             {
                 "stream_name": stream,
                 "config": config
+            },
+            timeout=timeout,
+            request_dc=ConsumerCreateRequest,
+            response_dc=ConsumerCreateResponse,
+        )
+
+    async def update(
+        self,
+        stream: str,
+        name: str,
+        description: Optional[str] = ...,  # type: ignore[assignment]
+        deliver_subject: Optional[str] = ...,  # type: ignore[assignment]
+        ack_wait: Optional[int] = ...,  # type: ignore[assignment]
+        max_deliver: int = ...,  # type: ignore[assignment]
+        sample_freq: Optional[str] = ...,  # type: ignore[assignment]
+        rate_limit_bps: Optional[int] = ...,  # type: ignore[assignment]
+        max_ack_pending: Optional[int] = ...,  # type: ignore[assignment]
+        max_waiting: Optional[int] = ...,  # type: ignore[assignment]
+        headers_only: Optional[bool] = ...,  # type: ignore[assignment]
+        timeout: float = 1,
+    ) -> ConsumerCreateResponse:
+        subject = f"CONSUMER.DURABLE.CREATE.{stream}.{name}"
+        config = dict(
+            durable_name=name,
+            description=description,
+            deliver_subject=deliver_subject,
+            ack_wait=ack_wait,
+            max_deliver=max_deliver,
+            sample_freq=sample_freq,
+            rate_limit_bps=rate_limit_bps,
+            max_ack_pending=max_ack_pending,
+            max_waiting=max_waiting,
+            headers_only=headers_only,
+        )
+        return await self._js._request(
+            subject,
+            {
+                "stream_name": stream,
+                "config": {
+                    key: value
+                    for key, value in config.items() if value is not ...
+                }
             },
             timeout=timeout,
             request_dc=ConsumerCreateRequest,

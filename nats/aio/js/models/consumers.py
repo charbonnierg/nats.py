@@ -82,6 +82,7 @@ class ConsumerConfig:
     deliver_group: Optional[str] = None
     ack_policy: AckPolicy = AckPolicy.explicit
     durable_name: Optional[str] = None
+    description: Optional[str] = None
     deliver_subject: Optional[str] = None
     ack_wait: Optional[int] = None
     max_deliver: Optional[int] = None
@@ -92,7 +93,7 @@ class ConsumerConfig:
     max_ack_pending: Optional[int] = None
     idle_heartbeat: Optional[int] = None
     flow_control: Optional[bool] = None
-    max_waiting: Optional[int] = 512
+    max_waiting: Optional[int] = None
     ops_start_seq: Optional[int] = None
     ops_start_time: Optional[int] = None
     headers_only: Optional[bool] = None

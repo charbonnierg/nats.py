@@ -426,6 +426,25 @@ class JetStreamTest(SingleJetStreamServerTestCase):
         await nc.close()
 
     @async_test
+    async def test_consumer_update_description(self):
+        nc = await nats.connect()
+        js = nc.jetstream()
+        await js.stream.add("TEST", subjects=["foo", "bar"])
+        create_response = await js.consumer.add(
+            "TEST", "foo", description="test consumer", deliver_subject=None
+        )
+        self.assertEqual(create_response.config.description, "test consumer")
+        update_response = await js.consumer.update(
+            "TEST", "foo", description="A test consumer"
+        )
+        info_response = await js.consumer.info("TEST", "foo")
+        self.assertEqual(
+            info_response.config.description,
+            update_response.config.description
+        )
+        await nc.close()
+
+    @async_test
     async def test_kv_create(self):
         nc = await nats.connect()
 

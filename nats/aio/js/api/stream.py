@@ -194,14 +194,14 @@ class StreamAPI:
     async def update(
         self,
         name: str,
-        description: Optional[str] = None,
-        subjects: Optional[List[str]] = None,
-        discard: Optional[Discard] = None,
-        max_msgs: Optional[int] = None,
-        max_msgs_per_subject: Optional[int] = None,
-        max_bytes: Optional[int] = None,
-        max_age: Optional[int] = None,
-        num_replicas: Optional[int] = None,
+        description: Optional[str] = ...,  # type: ignore[assignment]
+        subjects: Optional[List[str]] = ...,  # type: ignore[assignment]
+        discard: Optional[Discard] = ...,  # type: ignore[assignment]
+        max_msgs: Optional[int] = ...,  # type: ignore[assignment]
+        max_msgs_per_subject: Optional[int] = ...,  # type: ignore[assignment]
+        max_bytes: Optional[int] = ...,  # type: ignore[assignment]
+        max_age: Optional[int] = ...,  # type: ignore[assignment]
+        num_replicas: Optional[int] = ...,  # type: ignore[assignment]
         timeout: float = 1,
         **kwargs: Any,
     ) -> StreamInfoResponse:
@@ -234,27 +234,27 @@ class StreamAPI:
         current_config = (await self.info(name, False)).config
         new_config: Dict[str, Any] = {}
         new_config["name"] = name
-        if description is not None:
+        if description is not ...:
             new_config["description"] = description
-        if subjects is not None:
+        if subjects is not ...:
             new_config["subjects"] = subjects
-        if discard is not None:
+        if discard is not ...:
             new_config["discard"] = discard
-        elif current_config.discard is not None:
+        elif current_config.discard is not ...:
             kwargs.pop("discard", None)
-            try:
-                new_config["discard"] = current_config.discard.value
-            except AttributeError:
+            if current_config.discard:
                 new_config["discard"] = current_config.discard
-        if max_msgs is not None:
+            else:
+                new_config["discard"] = current_config.discard
+        if max_msgs is not ...:
             new_config["max_msgs"] = max_msgs
-        if max_msgs_per_subject is not None:
+        if max_msgs_per_subject is not ...:
             new_config["max_msgs_per_subject"] = max_msgs_per_subject
-        if max_bytes is not None:
+        if max_bytes is not ...:
             new_config["max_bytes"] = max_bytes
-        if max_age is not None:
+        if max_age is not ...:
             new_config["max_age"] = max_age
-        if num_replicas is not None:
+        if num_replicas is not ...:
             new_config["num_replicas"] = num_replicas
         options = asdict(
             StreamUpdateRequest(
@@ -267,10 +267,8 @@ class StreamAPI:
         )
         return await self._js._request(
             f"STREAM.UPDATE.{name}",
-            {
-                key: value
-                for key, value in options.items() if value is not None
-            },
+            {key: value
+             for key, value in options.items() if value is not ...},
             timeout=timeout,
             response_dc=StreamInfoResponse,
         )

@@ -109,18 +109,23 @@ class StreamAPI:
         """Create a new stream.
 
         Args:
-            * `subjects`: A list of subjects to consume, supports wildcards. Must be empty when a mirror is configured. May be empty when sources are configured.
+            * `subjects`: A list of subjects to consume, supports wildcards.
+              Must be empty when a mirror is configured. May be empty when sources are configured.
             * `retention`: How messages are retained in the Stream, once this is exceeded old messages are removed.
             * `max_consumers`: How many Consumers can be defined for a given Stream. -1 for unlimited.
-            * `max_msgs`: How many messages may be in a Stream, oldest messages will be removed if the Stream exceeds this size. -1 for unlimited.
-            * `max_msgs_per_subject`: For wildcard streams ensure that for every unique subject this many messages are kept - a per subject retention limit
-            * `max_bytes`: How big the Stream may be, when the combined stream size exceeds this old messages are removed. -1 for unlimited.
+            * `max_msgs`: How many messages may be in a Stream, oldest messages will be removed
+              if the Stream exceeds this size. -1 for unlimited.
+            * `max_msgs_per_subject`: For wildcard streams ensure that for every unique subject
+              this many messages are kept - a per subject retention limit
+            * `max_bytes`: How big the Stream may be, when the combined stream size exceeds
+              this old messages are removed. -1 for unlimited.
             * `max_age`: Maximum age of any message in the stream, expressed in nanoseconds. 0 for unlimited.
             * `max_msg_size`: The largest message that will be accepted by the Stream. -1 for unlimited.
             * `storage`: The storage backend to use for the Stream ('file' or 'memory').
             * `discard`: Discard policy configures which messages get discarded along time.
             * `num_replicas`: How many replicas to keep for each message.
-            * `mirror`: Maintains a 1:1 mirror of another stream with name matching this argument.  When a mirror is configured subjects and sources must be empty.
+            * `mirror`: Maintains a 1:1 mirror of another stream with name matching this argument.
+              When a mirror is configured subjects and sources must be empty.
             * `sources`: List of Stream names to replicate into this Stream.
             * `timeout`: timeout to wait before raising a TimeoutError.
 
@@ -130,8 +135,10 @@ class StreamAPI:
         References:
             * Streams - [NATS Docs](https://docs.nats.io/jetstream/concepts/streams)
             * Stream, NATS API Reference - [NATS Docs](https://docs.nats.io/jetstream/nats_api_reference#streams)
-            * `io.nats.jetstream.api.v1.stream_create_response` (JSON Schema): <https://github.com/nats-io/jsm.go/blob/v0.0.24/schemas/jetstream/api/v1/stream_create_request.json>
-            * `io.nats.jetstream.api.v1.stream_create_request` (JSON Schema): <https://github.com/nats-io/jsm.go/blob/v0.0.24/schemas/jetstream/api/v1/stream_create_response.json>
+            * `io.nats.jetstream.api.v1.stream_create_response` (JSON Schema):
+              <https://github.com/nats-io/jsm.go/blob/v0.0.24/schemas/jetstream/api/v1/stream_create_request.json>
+            * `io.nats.jetstream.api.v1.stream_create_request` (JSON Schema):
+              <https://github.com/nats-io/jsm.go/blob/v0.0.24/schemas/jetstream/api/v1/stream_create_response.json>
         """
         options = dict(
             name=name,
@@ -203,9 +210,12 @@ class StreamAPI:
         Args:
             * `subjects`: A list of subjects to consume, supports wildcards.
             * `discard`: Discard policy configures which messages get discarded along time.
-            * `max_msgs`: How many messages may be in a Stream, oldest messages will be removed if the Stream exceeds this size. -1 for unlimited.
-            * `max_msgs_per_subject`: For wildcard streams ensure that for every unique subject this many messages are kept - a per subject retention limit
-            * `max_bytes`: How big the Stream may be, when the combined stream size exceeds this old messages are removed. -1 for unlimited.
+            * `max_msgs`: How many messages may be in a Stream, oldest messages will be removed
+              if the Stream exceeds this size. -1 for unlimited.
+            * `max_msgs_per_subject`: For wildcard streams ensure that for every unique subject
+              this many messages are kept - a per subject retention limit
+            * `max_bytes`: How big the Stream may be, when the combined stream size exceeds
+              this old messages are removed. -1 for unlimited.
             * `max_age`: Maximum age of any message in the stream, expressed in nanoseconds. 0 for unlimited.
             * `num_replicas`: How many replicas to keep for each message.
             * `timeout`: timeout to wait before raising a TimeoutError.
@@ -216,8 +226,10 @@ class StreamAPI:
         References:
             * Streams - [NATS Docs](https://docs.nats.io/jetstream/concepts/streams)
             * Stream, NATS API Reference - [NATS Docs](https://docs.nats.io/jetstream/nats_api_reference#streams)
-            * `io.nats.jetstream.api.v1.stream_update_response` (JSON Schema): <https://github.com/nats-io/jsm.go/blob/v0.0.24/schemas/jetstream/api/v1/stream_update_response.json>
-            * `io.nats.jetstream.api.v1.stream_update_request` (JSON Schema): <https://github.com/nats-io/jsm.go/blob/v0.0.24/schemas/jetstream/api/v1/stream_update_request.json>
+            * `io.nats.jetstream.api.v1.stream_update_response` (JSON Schema):
+              <https://github.com/nats-io/jsm.go/blob/v0.0.24/schemas/jetstream/api/v1/stream_update_response.json>
+            * `io.nats.jetstream.api.v1.stream_update_request` (JSON Schema):
+              <https://github.com/nats-io/jsm.go/blob/v0.0.24/schemas/jetstream/api/v1/stream_update_request.json>
         """
         current_config = (await self.info(name, False)).config
         new_config: Dict[str, Any] = {}
@@ -296,8 +308,10 @@ class StreamAPI:
         Args:
             * `name`: Name of the stream
             * `filter`: Restrict purging to messages that match this subject.
-            * `seq`: Purge all messages up to but not including the message with this sequence. Can be combined with subject filter but not the keep option.
-            * `keep`: Ensures this many messages are present after the purge. Can be combined with the subject filter but not the sequence.
+            * `seq`: Purge all messages up to but not including the message with this sequence.
+               Can be combined with subject filter but not the keep option.
+            * `keep`: Ensures this many messages are present after the purge.
+              Can be combined with the subject filter but not the sequence.
             * `timeout`: timeout to wait before raising a TimeoutError.
 
         Returns:
@@ -360,7 +374,8 @@ class StreamAPI:
         Args:
             * `name`: Name of the stream
             * `seq`: Stream sequence number of the message to delete.
-            * `no_erase`: Default will securely remove a message and rewrite the data with random data, set this to true to only remove the message
+            * `no_erase`: Default will securely remove a message and rewrite the data with random data,
+              set this to true to only remove the message
             * `timeout`: timeout to wait before raising a TimeoutError.
 
         Returns:

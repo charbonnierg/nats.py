@@ -551,6 +551,7 @@ class Client:
         self._ps = Parser(self)
         self._pending = []
         self._pending_data_size = 0
+        self._publish_semaphore = None
         self._flush_queue = None
         self._flusher_task = None
         self._hdr_parser = BytesParser()
@@ -606,6 +607,7 @@ class Client:
         ping_interval: int = DEFAULT_PING_INTERVAL,
         max_outstanding_pings: int = DEFAULT_MAX_OUTSTANDING_PINGS,
         dont_randomize: bool = False,
+        pending_size: int = DEFAULT_PENDING_SIZE,
         flusher_queue_size: int = DEFAULT_MAX_FLUSHER_QUEUE_SIZE,
         no_echo: bool = False,
         tls: Optional[ssl.SSLContext] = None,
@@ -664,6 +666,8 @@ class Client:
 
         # Queue used to trigger flushes to the socket
         self._flush_queue = asyncio.Queue(maxsize=flusher_queue_size)
+        self.options["pending_size"] = pending_size
+        self._publish_semaphore = asyncio.Semaphore(1)
 
         if self.options["dont_randomize"] is False:
             shuffle(self._server_pool)
@@ -954,9 +958,10 @@ class Client:
         payload_size = len(payload)
         if payload_size > self._max_payload:
             raise ErrMaxPayload
-        await self._send_publish(
-            subject, reply, payload, payload_size, headers
-        )
+        async with self._publish_semaphore:
+            await self._send_publish(
+                subject, reply, payload, payload_size, headers
+            )
 
     async def _send_publish(
         self, subject, reply, payload, payload_size, headers
@@ -986,6 +991,9 @@ class Client:
         self.stats['out_bytes'] += payload_size
         await self._send_command(pub_cmd)
         if self._flush_queue.empty():
+            _logger.debug(
+                f"PUBLISH - Kicking flusher (pending_size: {self._pending_data_size})"
+            )
             await self._flush_pending()
 
     async def subscribe(
@@ -1253,19 +1261,27 @@ class Client:
         else:
             self._pending.append(cmd)
         self._pending_data_size += len(cmd)
-        if self._pending_data_size > DEFAULT_PENDING_SIZE:
-            await self._flush_pending()
+        if self._pending_data_size > self.options["pending_size"]:
+            _logger.debug(
+                f"SEND_CMD - Kicking flusher (pending_size: {self._pending_data_size}, max_size: {self.options['pending_size']})"
+            )
+            future = await self._flush_pending()
+            if future:
+                await asyncio.wait_for(future, None)
 
     async def _flush_pending(self):
+        future = asyncio.Future()
         try:
             # kick the flusher!
-            await self._flush_queue.put(None)
+            await self._flush_queue.put(future)
 
             if not self.is_connected:
-                return
+                return None
 
         except asyncio.CancelledError:
-            pass
+            return None
+
+        return future
 
     def _setup_server_pool(self, connect_url):
         if type(connect_url) is str:
@@ -1894,19 +1910,29 @@ class Client:
                 break
 
             try:
-                await self._flush_queue.get()
+                _logger.debug("FLUSHER - Waiting for next flush")
+                future: asyncio.Future[None] = await self._flush_queue.get()
 
                 if self._pending_data_size > 0:
+                    _pending = self._pending_data_size
+                    _logger.debug(f"FLUSHER - Flushing {_pending} bytes")
                     self._io_writer.writelines(self._pending[:])
                     self._pending = []
                     self._pending_data_size = 0
                     await self._io_writer.drain()
+                    _logger.debug(f"FLUSHER - Flushed {_pending} bytes")
+
+                future.set_result(None)
+
             except OSError as e:
                 await self._error_cb(e)
                 await self._process_op_err(e)
                 break
             except (asyncio.CancelledError, RuntimeError, AttributeError) as e:
                 # RuntimeError in case the event loop is closed
+                break
+            except Exception as err:
+                _logger.error(err)
                 break
 
     async def _ping_interval(self):

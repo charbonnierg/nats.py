@@ -715,6 +715,7 @@ class Client:
         self.stats['out_bytes'] += payload_size
         await self._send_command(pub_cmd)
         if self._flush_queue.empty():
+            _logger.debug(f"Kicking the flusher (pending_size: {self._pending_data_size})")
             await self._flush_pending()
 
     async def subscribe(
@@ -1008,6 +1009,7 @@ class Client:
             self._pending.append(cmd)
         self._pending_data_size += len(cmd)
         if self._pending_data_size > DEFAULT_PENDING_SIZE:
+            _logger.debug(f"Kicking the flusher (pending_size: {self._pending_data_size}, max_size: {DEFAULT_PENDING_SIZE})")
             await self._flush_pending()
 
     async def _flush_pending(self) -> None:
@@ -1744,10 +1746,13 @@ class Client:
                 await self._flush_queue.get()
 
                 if self._pending_data_size > 0:
+                    _pending = self._pending_data_size
+                    _logger.debug(f"Flushing {_pending} bytes")
                     self._io_writer.writelines(self._pending[:])
                     self._pending = []
                     self._pending_data_size = 0
                     await self._io_writer.drain()
+                    _logger.debug(f"Flushed {_pending} bytes")
             except OSError as e:
                 await self._error_cb(e)
                 await self._process_op_err(e)

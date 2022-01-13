@@ -715,7 +715,9 @@ class Client:
         self.stats['out_bytes'] += payload_size
         await self._send_command(pub_cmd)
         if self._flush_queue.empty():
-            _logger.debug(f"Kicking the flusher (pending_size: {self._pending_data_size})")
+            _logger.debug(
+                f"Kicking the flusher (pending_size: {self._pending_data_size})"
+            )
             await self._flush_pending()
 
     async def subscribe(
@@ -1009,17 +1011,32 @@ class Client:
             self._pending.append(cmd)
         self._pending_data_size += len(cmd)
         if self._pending_data_size > DEFAULT_PENDING_SIZE:
-            _logger.debug(f"Kicking the flusher (pending_size: {self._pending_data_size}, max_size: {DEFAULT_PENDING_SIZE})")
-            await self._flush_pending()
+            _logger.debug(
+                f"Kicking the flusher (pending_size: {self._pending_data_size}, max_size: {DEFAULT_PENDING_SIZE})"
+            )
+            # FIXME: Should a timeout be used now that this can block ?
+            # Now: process_ping, send_publish, send_subscribe and send_unsubscribe can block as long as flushing in on-going
+            await self._flush_pending(block=True)
 
-    async def _flush_pending(self) -> None:
+    async def _flush_pending(
+        self,
+        block: bool = False,
+        timeout: Optional[float] = None
+    ) -> asyncio.Future:
         assert self._flush_queue, "Client.connect must be called first"
         try:
-            # kick the flusher!
-            await self._flush_queue.put(None)
-
+            future = asyncio.Future()
             if not self.is_connected:
-                return
+                future.set_result(None)
+                return future
+            # kick the flusher!
+            await self._flush_queue.put(future)
+            # Optionally block
+            if block:
+                try:
+                    await asyncio.wait_for(future, timeout)
+                except asyncio.TimeoutError:
+                    raise TimeoutError
 
         except asyncio.CancelledError:
             pass
@@ -1252,7 +1269,8 @@ class Client:
                 # Flush pending data before continuing in connected status.
                 # FIXME: Could use future here and wait for an error result
                 # to bail earlier in case there are errors in the connection.
-                await self._flush_pending()
+                # Does this help ?
+                await self._flush_pending(block=True)
                 self._status = Client.CONNECTED
                 await self.flush()
                 if self._reconnected_cb is not None:
@@ -1743,16 +1761,21 @@ class Client:
                 break
 
             try:
-                await self._flush_queue.get()
-
-                if self._pending_data_size > 0:
-                    _pending = self._pending_data_size
-                    _logger.debug(f"Flushing {_pending} bytes")
-                    self._io_writer.writelines(self._pending[:])
-                    self._pending = []
-                    self._pending_data_size = 0
-                    await self._io_writer.drain()
-                    _logger.debug(f"Flushed {_pending} bytes")
+                future: asyncio.Future = await self._flush_queue.get()
+                try:
+                    if self._pending_data_size > 0:
+                        _pending = self._pending_data_size
+                        _logger.debug(f"Flushing {_pending} bytes")
+                        self._io_writer.writelines(self._pending[:])
+                        self._pending = []
+                        self._pending_data_size = 0
+                        await self._io_writer.drain()
+                        _logger.debug(f"Flushed {_pending} bytes")
+                except Exception as err:
+                    future.set_exception(err)
+                    raise
+                else:
+                    future.set_result(None)
             except OSError as e:
                 await self._error_cb(e)
                 await self._process_op_err(e)

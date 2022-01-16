@@ -195,13 +195,8 @@ class Subscription:
             # Roundtrip to ensure that the server has sent all messages.
             await self._conn.flush()
 
-            if self._pending_queue:
-                # Wait until no more messages are left,
-                # then cancel the subscription task.
-                await self._pending_queue.join()
-
             # stop waiting for messages
-            self._stop_processing()
+            await self._stop_processing(wait=True)
 
             # Subscription is done and won't be receiving further
             # messages so can throw it away now.
@@ -233,16 +228,20 @@ class Subscription:
         self._max_msgs = limit
         if limit == 0 or self._received >= limit:
             self._closed = True
-            self._stop_processing()
+            await self._stop_processing(wait=False)
             self._conn._remove_sub(self._id)
 
         if not self._conn.is_reconnecting:
             await self._conn._send_unsubscribe(self._id, limit=limit)
 
-    def _stop_processing(self) -> None:
+    async def _stop_processing(self, wait: bool = False) -> None:
         """
         Stops the subscription from processing new messages.
         """
+        if wait:
+            if self._pending_queue:
+                # Wait until no more messages are left,
+                await self._pending_queue.join()
         if self._wait_for_msgs_task and not self._wait_for_msgs_task.done():
             self._wait_for_msgs_task.cancel()
         if self._message_iterator:
@@ -257,6 +256,9 @@ class Subscription:
         while True:
             try:
                 msg = await self._pending_queue.get()
+                print(
+                    f"Received a message (limit={self._max_msgs}, delivered={self.delivered})"
+                )
                 self._pending_size -= len(msg.data)
 
                 try:
@@ -274,6 +276,7 @@ class Subscription:
                 finally:
                     # indicate the message finished processing so drain can continue
                     self._pending_queue.task_done()
+                    print("Done handling msg")
 
             except asyncio.CancelledError:
                 break

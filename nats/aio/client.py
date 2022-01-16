@@ -1437,7 +1437,10 @@ class Client:
         if sub._max_msgs > 0 and sub._received >= sub._max_msgs:
             # Enough messages so can throwaway subscription now.
             self._subs.pop(sid, None)
-            sub._stop_processing()
+            # FIXME: It bothers me that exceptions raised in the task are not catched...
+            # But still, I find it better than discarding messages due to having specified max_msgs
+            # and having received a bunch of messages at the same time
+            asyncio.create_task(sub._stop_processing(True))
 
         hdr = None
         if headers:

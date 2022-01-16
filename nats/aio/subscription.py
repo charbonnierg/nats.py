@@ -256,9 +256,6 @@ class Subscription:
         while True:
             try:
                 msg = await self._pending_queue.get()
-                print(
-                    f"Received a message (limit={self._max_msgs}, delivered={self.delivered})"
-                )
                 self._pending_size -= len(msg.data)
 
                 try:
@@ -276,7 +273,6 @@ class Subscription:
                 finally:
                     # indicate the message finished processing so drain can continue
                     self._pending_queue.task_done()
-                    print("Done handling msg")
 
             except asyncio.CancelledError:
                 break

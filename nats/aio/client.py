@@ -217,7 +217,8 @@ class Client:
         drain_timeout: int = DEFAULT_DRAIN_TIMEOUT,
         signature_cb=None,
         user_jwt_cb: Optional[Callable[[], str]] = None,
-        user_credentials: Optional[Union[str, Tuple[str, str]]] = None,
+        user_credentials: Optional[Union[str, Tuple[str, str], bytes,
+                                         Tuple[bytes, bytes]]] = None,
         nkeys_seed: Optional[str] = None,
     ):
         """
@@ -391,79 +392,131 @@ class Client:
         import os
 
         creds = self._user_credentials
-        if isinstance(creds, tuple) and len(creds) > 1:
 
-            def user_cb():
-                contents = None
-                with open(creds[0], 'rb') as f:
-                    contents = bytearray(os.fstat(f.fileno()).st_size)
-                    f.readinto(contents)
-                return contents
+        # Handle creds given as tuple
+        if isinstance(creds, tuple) and len(creds) > 1:
+            # Handle tuples of bytes
+            if all(isinstance(item, bytes) for item in creds):
+
+                def user_cb():
+                    return bytearray(creds[0])
+
+                def sig_cb(nonce):
+                    seed = bytearray(creds[1])
+                    kp = nkeys.from_seed(seed)
+                    raw_signed = kp.sign(nonce.encode())
+                    sig = base64.b64encode(raw_signed)
+                    # Best effort attempt to clear from memory.
+                    kp.wipe()
+                    del kp
+                    del seed
+                    return sig
+
+            else:
+
+                def user_cb():
+                    contents = None
+                    with open(creds[0], 'rb') as f:
+                        contents = bytearray(os.fstat(f.fileno()).st_size)
+                        f.readinto(contents)
+                    return contents
+
+                def sig_cb(nonce):
+                    seed = None
+                    with open(creds[1], 'rb') as f:
+                        seed = bytearray(os.fstat(f.fileno()).st_size)
+                        f.readinto(seed)
+                    kp = nkeys.from_seed(seed)
+                    raw_signed = kp.sign(nonce.encode())
+                    sig = base64.b64encode(raw_signed)
+
+                    # Best effort attempt to clear from memory.
+                    kp.wipe()
+                    del kp
+                    del seed
+                    return sig
 
             self._user_jwt_cb = user_cb
-
-            def sig_cb(nonce):
-                seed = None
-                with open(creds[1], 'rb') as f:
-                    seed = bytearray(os.fstat(f.fileno()).st_size)
-                    f.readinto(seed)
-                kp = nkeys.from_seed(seed)
-                raw_signed = kp.sign(nonce.encode())
-                sig = base64.b64encode(raw_signed)
-
-                # Best effort attempt to clear from memory.
-                kp.wipe()
-                del kp
-                del seed
-                return sig
-
             self._signature_cb = sig_cb
         else:
-            # Define the functions to be able to sign things using nkeys.
-            def user_cb():
-                user_jwt = None
-                with open(creds, 'rb') as f:
-                    while True:
-                        line = bytearray(f.readline())
-                        if b'BEGIN NATS USER JWT' in line:
-                            user_jwt = bytearray(f.readline())
+            if isinstance(creds, bytes):
+
+                def user_cb():
+                    is_jwt = False
+                    user_jwt = None
+                    for line in creds.splitlines():
+                        if is_jwt:
+                            user_jwt = bytearray(line)
                             break
-                # Remove trailing line break but reusing same memory view.
-                return user_jwt[:len(user_jwt) - 1]
+                        if b'BEGIN NATS USER JWT' in line:
+                            is_jwt = True
+                    return user_jwt
+
+                def sig_cb(nonce):
+                    user_seed = None
+                    is_seed = False
+                    for line in creds.splitlines():
+                        if is_seed:
+                            user_seed = bytearray(line)
+                            break
+                        if b'BEGIN USER NKEY SEED' in line:
+                            is_seed = True
+                    kp = nkeys.from_seed(user_seed)
+                    raw_signed = kp.sign(nonce.encode())
+                    sig = base64.b64encode(raw_signed)
+
+                    # Delete all state related to the keys.
+                    kp.wipe()
+                    del user_seed
+                    del kp
+                    return sig
+
+            else:
+
+                # Define the functions to be able to sign things using nkeys.
+                def user_cb():
+                    user_jwt = None
+                    with open(creds, 'rb') as f:
+                        while True:
+                            line = bytearray(f.readline())
+                            if b'BEGIN NATS USER JWT' in line:
+                                user_jwt = bytearray(f.readline())
+                                break
+                    # Remove trailing line break but reusing same memory view.
+                    return user_jwt[:len(user_jwt) - 1]
+
+                def sig_cb(nonce):
+                    user_seed = None
+                    with open(creds, 'rb', buffering=0) as f:
+                        for line in f:
+                            # Detect line where the NKEY would start and end,
+                            # then seek and read into a fixed bytearray that
+                            # can be wiped.
+                            if b'BEGIN USER NKEY SEED' in line:
+                                nkey_start_pos = f.tell()
+                                try:
+                                    next(f)
+                                except StopIteration:
+                                    raise ErrInvalidUserCredentials()
+                                nkey_end_pos = f.tell()
+                                nkey_size = nkey_end_pos - nkey_start_pos - 1
+                                f.seek(nkey_start_pos)
+
+                                # Only gather enough bytes for the user seed
+                                # into the pre allocated bytearray.
+                                user_seed = bytearray(nkey_size)
+                                f.readinto(user_seed)
+                    kp = nkeys.from_seed(user_seed)
+                    raw_signed = kp.sign(nonce.encode())
+                    sig = base64.b64encode(raw_signed)
+
+                    # Delete all state related to the keys.
+                    kp.wipe()
+                    del user_seed
+                    del kp
+                    return sig
 
             self._user_jwt_cb = user_cb
-
-            def sig_cb(nonce):
-                user_seed = None
-                with open(creds, 'rb', buffering=0) as f:
-                    for line in f:
-                        # Detect line where the NKEY would start and end,
-                        # then seek and read into a fixed bytearray that
-                        # can be wiped.
-                        if b'BEGIN USER NKEY SEED' in line:
-                            nkey_start_pos = f.tell()
-                            try:
-                                next(f)
-                            except StopIteration:
-                                raise ErrInvalidUserCredentials
-                            nkey_end_pos = f.tell()
-                            nkey_size = nkey_end_pos - nkey_start_pos - 1
-                            f.seek(nkey_start_pos)
-
-                            # Only gather enough bytes for the user seed
-                            # into the pre allocated bytearray.
-                            user_seed = bytearray(nkey_size)
-                            f.readinto(user_seed)
-                kp = nkeys.from_seed(user_seed)
-                raw_signed = kp.sign(nonce.encode())
-                sig = base64.b64encode(raw_signed)
-
-                # Delete all state related to the keys.
-                kp.wipe()
-                del user_seed
-                del kp
-                return sig
-
             self._signature_cb = sig_cb
 
     def _setup_nkeys_seed_connect(self) -> None:

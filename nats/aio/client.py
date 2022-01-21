@@ -1370,7 +1370,8 @@ class Client:
         if sub._max_msgs > 0 and sub._received >= sub._max_msgs:
             # Enough messages so can throwaway subscription now.
             self._subs.pop(sid, None)
-            sub._stop_processing()
+            # Stop processing in background so that tasks are not cancelled
+            asyncio.create_task(sub._stop_processing(True))
 
         hdr = None
         if headers:

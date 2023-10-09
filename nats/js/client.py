@@ -826,7 +826,16 @@ class JetStreamContext(JetStreamManager):
             next_req['batch'] = 1
             if expires:
                 next_req['expires'] = int(expires)
-
+            # Don't know why this is needed, must be related to the flusher task somehow.
+            # Without asyncio.sleep(0), if server disconnected a few moments ago (e.g., no
+            # pending task identified that server is down yet), then this publish will
+            # never be sent to the server.
+            # With this line, a BrokenPipeError is raised in the flusher loop, and the
+            # pending data is put back into the pending queue.
+            # What's even more surprising is that self._nc._flush_pending() does not work
+            # but a simple asyncio.sleep(0) does the trick, and setting the flusher timeout tp
+            # a lower value does not seem to have any impact either.
+            await asyncio.sleep(0)
             await self._nc.publish(
                 self._nms,
                 json.dumps(next_req).encode(),
@@ -883,6 +892,7 @@ class JetStreamContext(JetStreamManager):
             if expires:
                 next_req['expires'] = expires
             next_req['no_wait'] = True
+            await asyncio.sleep(0)
             await self._nc.publish(
                 self._nms,
                 json.dumps(next_req).encode(),

@@ -2024,18 +2024,20 @@ class Client:
                 break
 
             future: asyncio.Future = await self._flush_queue.get()
-            pending = None
             try:
                 if self._pending_data_size > 0:
                     pending = self._pending[:]
                     self._pending = []
                     self._pending_data_size = 0
                     self._transport.writelines(pending)
-                    await self._transport.drain()
+                    try:
+                        await self._transport.drain()
+                    except BaseException:
+                        if pending:
+                            self._pending_data_size += len(pending)
+                            self._pending = pending + self._pending
+                        raise
             except OSError as e:
-                if pending:
-                    self._pending_data_size += len(pending)
-                    self._pending = pending + self._pending
                 await self._error_cb(e)
                 await self._process_op_err(e)
                 break

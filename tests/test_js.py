@@ -785,14 +785,7 @@ class PullSubscribeTest(SingleJetStreamServerTestCase):
         async def error_handler(e: BaseException):
             print("Error:", e, type(e))
 
-        await nc.connect(
-            max_reconnect_attempts=-1,
-            allow_reconnect=True,
-            reconnect_time_wait=1,
-            error_cb=error_handler,
-            flush_timeout=1,
-            flusher_queue_size=1,
-        )
+        await nc.connect(error_cb=error_handler)
         js = nc.jetstream()
 
         await js.add_stream(name="TEST1", subjects=["foo.1", "bar"])
@@ -805,13 +798,7 @@ class PullSubscribeTest(SingleJetStreamServerTestCase):
         for i in range(3):
             srv.stop()
             srv.start()
-            while True:
-                await asyncio.sleep(0)
-                try:
-                    msg, *rest = await consumer.fetch(1, timeout=None)
-                except TimeoutError:
-                    continue
-                break
+            msg, *_ = await consumer.fetch(1, timeout=None)
             assert msg.data == b'Hello from NATS!'
             assert msg.metadata.stream == "TEST1"
             await msg.ack()

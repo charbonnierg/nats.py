@@ -777,6 +777,45 @@ class PullSubscribeTest(SingleJetStreamServerTestCase):
 
         await nc.close()
 
+    @async_long_test
+    async def test_pull_subscribe_reconnect(self):
+        srv = self.server_pool[0]
+        nc = NATS()
+
+        async def error_handler(e: BaseException):
+            print("Error:", e, type(e))
+
+        await nc.connect(
+            max_reconnect_attempts=-1,
+            allow_reconnect=True,
+            reconnect_time_wait=1,
+            error_cb=error_handler,
+            flush_timeout=1,
+            flusher_queue_size=1,
+        )
+        js = nc.jetstream()
+
+        await js.add_stream(name="TEST1", subjects=["foo.1", "bar"])
+
+        for i in range(3):
+            ack = await js.publish("foo.1", "Hello from NATS!".encode())
+            assert ack.stream == "TEST1"
+            assert ack.seq == i + 1
+        consumer = await js.pull_subscribe("foo.1", "dur")
+        for i in range(3):
+            srv.stop()
+            srv.start()
+            while True:
+                await asyncio.sleep(0)
+                try:
+                    msg, *rest = await consumer.fetch(1, timeout=None)
+                except TimeoutError:
+                    continue
+                break
+            assert msg.data == b'Hello from NATS!'
+            assert msg.metadata.stream == "TEST1"
+            await msg.ack()
+
 
 class JSMTest(SingleJetStreamServerTestCase):
 

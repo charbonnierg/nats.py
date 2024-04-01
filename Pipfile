@@ -8,6 +8,7 @@ flake8 = "*"
 mypy = "*"
 pytest = "*"
 pytest-cov = "*"
+pytest-asyncio = "*"
 yapf = "*"
 toml = "*"  # see https://github.com/google/yapf/issues/936
 exceptiongroup = "*"

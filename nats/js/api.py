@@ -623,6 +623,13 @@ class RawStreamMsg(Base):
 
 
 @dataclass
+class DirectGetResult(Base):
+    num_pending: int
+    last_seq: int
+    up_to_seq: int | None
+
+
+@dataclass
 class KeyValueConfig(Base):
     """
     KeyValueConfig is the configuration of a KeyValue store.
